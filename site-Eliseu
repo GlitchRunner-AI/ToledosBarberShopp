@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestão - Barbearia</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-zinc-100 text-zinc-800 font-sans antialiased" x-data="barbeariaApp()">
+
+    <!-- MODAL POP-UP DE ALERTA (15 MIN ANTES) -->
+    <div x-show="modalAlertaAberto" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" style="display: none;">
+        <div class="bg-white rounded-lg shadow-2xl p-6 max-w-sm w-full text-center border-4 border-amber-500">
+            <div class="text-amber-500 text-5xl mb-2">⏰</div>
+            <h3 class="text-xl font-bold text-zinc-900 mb-1">Próximo Atendimento!</h3>
+            <p class="text-sm text-zinc-600 mb-4">Faltam 15 minutos para o horário agendado.</p>
+            
+            <div class="bg-amber-50 border border-amber-200 rounded p-3 mb-4 text-left">
+                <p class="text-sm font-bold text-zinc-800" x-text="'Cliente: ' + clienteAlerta.nome"></p>
+                <p class="text-xs text-zinc-600" x-text="'Horário: ' + clienteAlerta.hora + ' hrs'"></p>
+                <p class="text-xs text-zinc-600" x-text="'WhatsApp: ' + (clienteAlerta.whats || 'Não informado')"></p>
+            </div>
+
+            <button @click="fecharAlerta()" class="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded shadow text-sm uppercase tracking-wide">
+                Entendido / Fechar
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL POP-UP AO CONCLUIR AGENDAMENTO -->
+    <div x-show="modalConcluirAberto" class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" style="display: none;">
+        <div class="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full">
+            <h3 class="text-lg font-bold text-zinc-900 mb-1">Finalizar Atendimento</h3>
+            <p class="text-sm text-zinc-600 mb-4" x-text="'Cliente: ' + agendamentoParaConcluir.cliente"></p>
+            
+            <div class="space-y-4 mb-6">
+                <div>
+                    <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Serviço / Corte Desejado</label>
+                    <select x-model.number="conclusaoForm.servicoId" class="w-full border border-zinc-300 rounded p-2 text-sm bg-white focus:outline-none">
+                        <option value="0">Selecione o serviço...</option>
+                        <template x-for="servico in listaServicos" :key="servico.docId">
+                            <option :value="servico.id" x-text="servico.nome + ' - R$ ' + servico.preco.toFixed(2)"></option>
+                        </template>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">O cliente levou algo adicional?</label>
+                    <div class="grid grid-cols-2 gap-2 mt-1">
+                        <template x-for="produto in produtosDisponiveis" :key="produto.docId">
+                            <label class="flex items-center space-x-2 border border-zinc-200 p-2 rounded text-xs hover:bg-zinc-50 cursor-pointer">
+                                <input type="checkbox" :value="produto.nome" x-model="conclusaoForm.produtosSelecionados" class="rounded border-zinc-300 text-zinc-900">
+                                <span class="flex-1" x-text="produto.nome + ' (R$ ' + parseFloat(produto.preco).toFixed(2) + ')'"></span>
+                            </label>
+                        </template>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Forma de Pagamento</label>
+                        <select x-model="conclusaoForm.pagamento" class="w-full border border-zinc-300 rounded p-2 text-sm bg-white focus:outline-none">
+                            <option value="Pix">Pix</option>
+                            <option value="Crédito">Cartão de Crédito</option>
+                            <option value="Débito">Cartão de Débito</option>
+                            <option value="Dinheiro">Dinheiro</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Desconto (R$)</label>
+                        <input type="number" step="0.01" x-model.number="conclusaoForm.desconto" placeholder="0,00" class="w-full border border-zinc-300 rounded p-2 text-sm focus:outline-none">
+                    </div>
+                </div>
+
+                <div class="bg-zinc-900 text-white p-3 rounded flex justify-between items-center">
+                    <span class="text-xs uppercase tracking-wider">Valor Total da Comanda</span>
+                    <span class="text-xl font-bold" x-text="'R$ ' + calcularTotalConclusao().toFixed(2)"></span>
+                </div>
+            </div>
+
+            <div class="flex justify-end space-x-2">
+                <button @click="modalConcluirAberto = false" class="bg-zinc-200 hover:bg-zinc-300 text-zinc-800 px-4 py-2 rounded text-sm font-medium">Cancelar</button>
+                <button @click="confirmarConclusaoAgendamento()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2 rounded text-sm font-bold shadow-sm">Confirmar e Enviar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL POP-UP DE ENCERRAMENTO DE PERÍODO -->
+    <div x-show="modalFechamentoAberto" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4" style="display: none;">
+        <div class="bg-white rounded-lg shadow-2xl p-6 max-w-lg w-full">
+            <h3 class="text-xl font-bold text-zinc-900 mb-1">Encerrar Período (Dia/Semana/Mês)</h3>
+            <p class="text-sm text-red-600 font-medium mb-4">Atenção: Ao confirmar, todo o "Histórico de Atendimentos" atual será limpo e arquivado nesta totalização.</p>
+            
+            <div class="bg-zinc-50 border border-zinc-200 rounded p-4 mb-4">
+                <div class="grid grid-cols-2 gap-4 text-sm mb-4">
+                    <div>
+                        <span class="block text-xs text-zinc-500 uppercase">Total Arrecadado</span>
+                        <span class="font-bold text-lg text-emerald-600" x-text="'R$ ' + dadosFechamento.totalRecebido.toFixed(2)"></span>
+                    </div>
+                    <div>
+                        <span class="block text-xs text-zinc-500 uppercase">Serviços Prestados</span>
+                        <span class="font-bold text-lg text-zinc-800" x-text="dadosFechamento.qtdCortes + ' cortes/serviços'"></span>
+                    </div>
+                    <div>
+                        <span class="block text-xs text-zinc-500 uppercase">Itens Adicionais</span>
+                        <span class="font-bold text-lg text-zinc-800" x-text="dadosFechamento.produtosVendidos + ' itens'"></span>
+                    </div>
+                </div>
+
+                <div class="border-t border-zinc-200 pt-3 max-h-32 overflow-y-auto">
+                    <span class="block text-xs text-zinc-500 uppercase mb-2">Clientes Atendidos neste período:</span>
+                    <ul class="text-xs text-zinc-700 space-y-1">
+                        <template x-for="nome in dadosFechamento.nomes" :key="nome">
+                            <li x-text="'- ' + nome"></li>
+                        </template>
+                        <template x-if="dadosFechamento.nomes.length === 0">
+                            <li>Nenhum cliente no histórico.</li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Nomeie este período (Ex: Dia 10/05 ou Mês de Maio)</label>
+                <input type="text" x-model="dadosFechamento.nomePeriodo" class="w-full border border-zinc-300 rounded p-2 text-sm focus:outline-none" placeholder="Ex: Semana 1 de Junho">
+            </div>
+
+            <div class="flex justify-end space-x-2 mt-4">
+                <button @click="modalFechamentoAberto = false" class="bg-zinc-200 hover:bg-zinc-300 text-zinc-800 px-4 py-2 rounded text-sm font-medium">Cancelar</button>
+                <button @click="confirmarFechamento()" class="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded text-sm font-bold shadow-sm">Arquivar e Limpar Histórico</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header / Navegação -->
+    <header class="bg-zinc-900 text-zinc-100 shadow">
+        <div class="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center overflow-x-auto">
+            <h1 class="text-lg font-semibold tracking-wide whitespace-nowrap mr-4">Gestão de Barbearia</h1>
+            <nav class="flex space-x-1 sm:space-x-2">
+                <button @click="aba = 'atendimento'" :class="aba === 'atendimento' ? 'bg-zinc-700' : 'bg-transparent hover:bg-zinc-800'" class="px-3 py-1.5 rounded text-sm transition whitespace-nowrap">Atendimento</button>
+                <button @click="aba = 'agendamentos'" :class="aba === 'agendamentos' ? 'bg-zinc-700' : 'bg-transparent hover:bg-zinc-800'" class="px-3 py-1.5 rounded text-sm transition whitespace-nowrap">Agendamentos</button>
+                <button @click="aba = 'historico'" :class="aba === 'historico' ? 'bg-zinc-700' : 'bg-transparent hover:bg-zinc-800'" class="px-3 py-1.5 rounded text-sm transition whitespace-nowrap">Histórico</button>
+                <button @click="aba = 'fechamentos'" :class="aba === 'fechamentos' ? 'bg-zinc-700' : 'bg-transparent hover:bg-zinc-800'" class="px-3 py-1.5 rounded text-sm transition whitespace-nowrap">Fechamentos</button>
+                <button @click="aba = 'mensalistas'" :class="aba === 'mensalistas' ? 'bg-zinc-700' : 'bg-transparent hover:bg-zinc-800'" class="px-3 py-1.5 rounded text-sm transition whitespace-nowrap">Mensalistas</button>
+                <button @click="aba = 'configuracoes'" :class="aba === 'configuracoes' ? 'bg-zinc-700' : 'bg-transparent hover:bg-zinc-800'" class="px-3 py-1.5 rounded text-sm transition whitespace-nowrap">Configurações</button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto px-4 py-6">
+
+        <!-- ABA 1: ATENDIMENTO / COMANDA RÁPIDA -->
+        <section x-show="aba === 'atendimento'" class="space-y-4">
+            
+            <!-- Botão de Encerrar Período no topo do Atendimento -->
+            <div class="flex justify-end">
+                <button @click="abrirModalFechamento()" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded shadow-sm text-sm font-bold tracking-wide flex items-center gap-2">
+                    <span>🛑</span> Encerrar Período (Dia/Semana)
+                </button>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-zinc-200">
+                <h2 class="text-xl font-medium text-zinc-900 mb-4 border-b pb-2">Comanda Rápida</h2>
+                
+                <form @submit.prevent="salvarAtendimento" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Data e Hora</label>
+                            <input type="text" x-model="form.dataHora" readonly class="w-full bg-zinc-50 border border-zinc-300 rounded p-2 text-sm text-zinc-600">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Telefone / WhatsApp</label>
+                            <input type="text" x-model="form.telefone" @input="buscarCliente" placeholder="(00) 00000-0000" required class="w-full border border-zinc-300 rounded p-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Nome do Cliente</label>
+                            <div class="flex items-center space-x-2">
+                                <input type="text" x-model="form.nome" placeholder="Nome do Cliente" required class="w-full border border-zinc-300 rounded p-2 text-sm focus:ring-1 focus:ring-zinc-900 focus:outline-none">
+                                <span x-text="statusCliente" :class="statusCliente === 'Novo' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'" class="text-xs px-2 py-1 rounded font-medium whitespace-nowrap"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Serviço Principal</label>
+                            <select x-model.number="form.servicoId" class="w-full border border-zinc-300 rounded p-2 text-sm bg-white focus:outline-none">
+                                <option value="0">Selecione o serviço...</option>
+                                <template x-for="servico in listaServicos" :key="servico.docId">
+                                    <option :value="servico.id" x-text="servico.nome + ' - R$ ' + servico.preco.toFixed(2)"></option>
+                                </template>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Forma de Pagamento</label>
+                            <select x-model="form.pagamento" class="w-full border border-zinc-300 rounded p-2 text-sm bg-white focus:outline-none">
+                                <option value="Pix">Pix</option>
+                                <option value="Crédito">Cartão de Crédito</option>
+                                <option value="Débito">Cartão de Débito</option>
+                                <option value="Dinheiro">Dinheiro</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="pt-2">
+                        <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Produtos / Extras (Selecione à vontade)</label>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                            <template x-for="(produto) in produtosDisponiveis" :key="produto.docId">
+                                <label class="flex items-center space-x-2 border border-zinc-200 p-2 rounded text-sm hover:bg-zinc-50 cursor-pointer">
+                                    <input type="checkbox" :value="produto.nome" x-model="form.produtosSelecionados" class="rounded border-zinc-300 text-zinc-900 focus:ring-0">
+                                    <span class="flex-1 text-xs" x-text="produto.nome + ' (R$ ' + parseFloat(produto.preco).toFixed(2) + ')'"></span>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t border-zinc-100">
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Desconto (R$)</label>
+                            <input type="number" step="0.01" x-model.number="form.desconto" placeholder="0,00" class="w-full border border-zinc-300 rounded p-2 text-sm focus:outline-none">
+                        </div>
+                    </div>
+
+                    <div class="flex justify-between items-center bg-zinc-900 text-white p-4 rounded mt-4">
+                        <span class="text-sm uppercase tracking-wider">Total da Comanda</span>
+                        <span class="text-2xl font-bold" x-text="'R$ ' + form.total.toFixed(2)"></span>
+                    </div>
+
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded text-sm font-bold transition shadow-sm w-full md:w-auto uppercase tracking-wide">
+                            Salvar Atendimento
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- ABA 2: AGENDAMENTOS -->
+        <section x-show="aba === 'agendamentos'" class="space-y-6" style="display: none;">
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-zinc-200">
+                <h2 class="text-xl font-medium text-zinc-900 mb-4 border-b pb-2">Agendar Cliente & Frequência</h2>
+                
+                <form @submit.prevent="salvarAgendamento" class="space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Cliente / Mensalista</label>
+                            <select x-model="novoAgendamento.clienteSelecionado" @change="preencherDadosMensalista()" class="w-full border border-zinc-300 rounded p-2 text-sm bg-white focus:outline-none mb-2">
+                                <option value="">-- Cliente Avulso ou Selecionar Mensalista --</option>
+                                <template x-for="m in mensalistas" :key="m.docId">
+                                    <option :value="m.nome" x-text="m.nome + ' (Plano: ' + m.tipo + ')'"></option>
+                                </template>
+                            </select>
+                            <input type="text" x-model="novoAgendamento.cliente" placeholder="Nome Completo" required class="w-full border border-zinc-300 rounded p-2 text-sm focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">WhatsApp</label>
+                            <input type="text" x-model="novoAgendamento.whats" placeholder="(00) 00000-0000" class="w-full border border-zinc-300 rounded p-2 text-sm focus:outline-none">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Data</label>
+                            <input type="date" x-model="novoAgendamento.data" required class="w-full border border-zinc-300 rounded p-2 text-sm focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Horário</label>
+                            <input type="time" x-model="novoAgendamento.hora" required class="w-full border border-zinc-300 rounded p-2 text-sm focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-zinc-500 uppercase mb-1">Frequência Acumulada</label>
+                            <input type="number" x-model.number="novoAgendamento.freq" min="1" value="1" class="w-full border border-zinc-300 rounded p-2 text-sm focus:outline-none">
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded text-sm font-bold uppercase transition">
+                            Salvar Agendamento
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- QUADRADOS DE CALENDÁRIO COM HOVER TOOLTIP (ATUALIZADO PARA 30 DIAS) -->
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-zinc-200">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 border-b pb-2 gap-2">
+                    <div>
+                        <h2 class="text-lg font-medium text-zinc-900">Visão Geral dos Próximos 30 Dias</h2>
+                        <p class="text-xs text-zinc-500">O calendário atualiza automaticamente e exibe apenas hoje em diante. Dias passados são fechados e enviados ao Histórico.</p>
+                    </div>
+                    <div class="flex items-center space-x-3 text-xs">
+                        <span class="flex items-center space-x-1"><span class="w-3 h-3 rounded bg-emerald-500 inline-block"></span><span>1-3</span></span>
+                        <span class="flex items-center space-x-1"><span class="w-3 h-3 rounded bg-amber-400 inline-block"></span><span>4-5</span></span>
+                        <span class="flex items-center space-x-1"><span class="w-3 h-3 rounded bg-red-500 inline-block"></span><span>6+</span></span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-7 gap-3 mb-6">
+                    <template x-for="diaObj in obterProximosDias()" :key="diaObj.dataStr">
+                        <div :class="obterClasseCorDia(diaObj.total)" 
+                             :title="diaObj.tooltipHorarios"
+                             class="border rounded-lg p-3 flex flex-col justify-between transition shadow-sm cursor-help relative group min-h-[90px]">
+                            <div>
+                                <span class="text-[10px] font-semibold uppercase tracking-wider block opacity-80" x-text="diaObj.diaSemana"></span>
+                                <span class="text-base font-bold block" x-text="diaObj.diaMes"></span>
+                            </div>
+                            <div class="mt-2 pt-2 border-t border-black border-opacity-10 flex justify-between items-center text-xs">
+                                <span class="font-medium text-[11px]" x-text="diaObj.total + ' agend.'"></span>
+                                <span class="w-2 h-2 rounded-full" :class="{
+                                    'bg-emerald-600': diaObj.total >= 1 && diaObj.total <= 3,
+                                    'bg-amber-600': diaObj.total >= 4 && diaObj.total <= 5,
+                                    'bg-red-600': diaObj.total >= 6,
+                                    'bg-zinc-300': diaObj.total === 0
+                                }"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Lista de Agendamentos -->
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-zinc-200">
+                <h2 class="text-lg font-medium text-zinc-900 mb-4 border-b pb-2">Agenda Detalhada (Aberto)</h2>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm text-zinc-600">
+                        <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 border-b">
+                            <tr>
+                                <th class="p-3">Cliente / WhatsApp</th>
+                                <th class="p-3">Data e Hora</th>
+                                <th class="p-3 text-center">Frequência</th>
+                                <th class="p-3 text-right">Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="a in agendamentos" :key="a.docId">
+                                <tr class="border-b hover:bg-zinc-50">
+                                    <td class="p-3 font-medium text-zinc-900">
+                                        <span x-text="a.cliente"></span><br>
+                                        <span class="text-xs text-zinc-400" x-text="a.whats || 'Sem WhatsApp'"></span>
+                                    </td>
+                                    <td class="p-3 whitespace-nowrap" x-text="a.data + ' às ' + a.hora"></td>
+                                    <td class="p-3 text-center">
+                                        <span class="bg-blue-50 text-blue-700 px-2.5 py-1 rounded text-xs font-bold" x-text="a.freq + 'ª Visita'"></span>
+                                    </td>
+                                    <td class="p-3 text-right space-x-2">
+                                        <button @click="abrirModalConcluir(a)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 rounded text-xs font-bold">Concluir</button>
+                                    </td>
+                                </tr>
+                            </template>
+                            <template x-if="agendamentos.length === 0">
+                               <tr><td colspan="4" class="p-4 text-center text-zinc-400">Nenhum agendamento ativo ou pendente.</td></tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- ABA 3: HISTÓRICO ATUAL -->
+        <section x-show="aba === 'historico'" class="bg-white p-6 rounded-lg shadow-sm border border-zinc-200" style="display: none;">
+            <div class="flex justify-between items-center mb-4 border-b pb-2">
+                <h2 class="text-xl font-medium text-zinc-900">Histórico de Atendimentos (Período Atual)</h2>
+                <span class="text-xs text-zinc-500">Este histórico será limpo quando você "Encerrar o Período".</span>
+            </div>
+            
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-zinc-600">
+                    <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 border-b">
+                        <tr>
+                            <th class="p-3">Data/Hora</th>
+                            <th class="p-3">Cliente</th>
+                            <th class="p-3">Serviço / Extras</th>
+                            <th class="p-3 text-center">Visitas</th>
+                            <th class="p-3 text-right">Total</th>
+                            <th class="p-3 text-right">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="(item) in historico" :key="item.docId">
+                            <tr class="border-b hover:bg-zinc-50">
+                                <td class="p-3 whitespace-nowrap" x-text="item.dataHora"></td>
+                                <td class="p-3 font-medium text-zinc-900">
+                                    <span x-text="item.nome"></span><br>
+                                    <span class="text-xs text-zinc-400" x-text="item.telefone"></span>
+                                </td>
+                                <td class="p-3">
+                                    <div class="font-medium text-zinc-800" x-text="item.servicoNome"></div>
+                                    <div class="text-xs text-zinc-500" x-text="item.produtosNomes"></div>
+                                    <div class="text-xs font-bold text-blue-600 mt-1" x-text="'Pgto: ' + item.pagamento"></div>
+                                </td>
+                                <td class="p-3 text-center">
+                                    <span class="bg-zinc-100 text-zinc-800 px-2 py-0.5 rounded text-xs font-medium" x-text="item.visitas"></span>
+                                </td>
+                                <td class="p-3 text-right font-bold text-zinc-900" x-text="'R$ ' + item.total.toFixed(2)"></td>
+                                <td class="p-3 text-right">
+                                    <button @click="removerHistorico(item.docId)" class="text-red-500 hover:text-red-700 text-xs font-medium">Excluir</button>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="historico.length === 0">
+                            <tr><td colspan="6" class="p-4 text-center text-zinc-400">Nenhum atendimento registrado neste período.</td></tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ABA 3.5: FECHAMENTOS (NOVA) -->
+        <section x-show="aba === 'fechamentos'" class="bg-white p-6 rounded-lg shadow-sm border border-zinc-200" style="display: none;">
+            <h2 class="text-xl font-medium text-zinc-900 mb-4 border-b pb-2">Relatórios de Fechamentos</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <template x-for="f in listaFechamentos" :key="f.docId">
+                    <div class="border border-zinc-200 rounded-lg p-4 bg-zinc-50">
+                        <div class="flex justify-between items-center mb-2 border-b border-zinc-200 pb-2">
+                            <h3 class="font-bold text-zinc-900 text-lg uppercase" x-text="f.nomePeriodo"></h3>
+                            <button @click="removerFechamento(f.docId)" class="text-red-500 text-xs hover:underline">Excluir</button>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2 text-sm">
+                            <div class="bg-white p-2 rounded border">
+                                <span class="block text-[10px] text-zinc-500 uppercase">Receita</span>
+                                <span class="font-bold text-emerald-600" x-text="'R$ ' + f.totalRecebido.toFixed(2)"></span>
+                            </div>
+                            <div class="bg-white p-2 rounded border">
+                                <span class="block text-[10px] text-zinc-500 uppercase">Cortes / Serviços</span>
+                                <span class="font-bold text-zinc-800" x-text="f.qtdCortes"></span>
+                            </div>
+                            <div class="bg-white p-2 rounded border col-span-2">
+                                <span class="block text-[10px] text-zinc-500 uppercase">Clientes Atendidos</span>
+                                <span class="text-xs text-zinc-700 block max-h-16 overflow-y-auto" x-text="f.nomes.join(', ') || 'Nenhum'"></span>
+                            </div>
+                        </div>
+                        <span class="block text-[10px] text-right mt-2 text-zinc-400" x-text="'Fechado em: ' + new Date(f.dataFechamento).toLocaleDateString('pt-BR')"></span>
+                    </div>
+                </template>
+                <template x-if="listaFechamentos.length === 0">
+                    <div class="col-span-2 text-center text-zinc-500 py-6">Nenhum período foi encerrado e arquivado ainda.</div>
+                </template>
+            </div>
+        </section>
+
+        <!-- ABA 4: MENSALISTAS -->
+        <section x-show="aba === 'mensalistas'" class="bg-white p-6 rounded-lg shadow-sm border border-zinc-200" style="display: none;">
+            <h2 class="text-xl font-medium text-zinc-900 mb-4 border-b pb-2">Cadastro de Mensalistas & Limites de Visitas</h2>
+            
+            <form @submit.prevent="salvarMensalista" class="grid grid-cols-1 md:grid-cols-6 gap-3 mb-6 bg-zinc-50 p-4 rounded border border-zinc-200 items-end">
+                <div class="md:col-span-1">
+                    <label class="block text-xs uppercase mb-1 text-zinc-500">Nome</label>
+                    <input type="text" x-model="novoMensalista.nome" placeholder="Nome" required class="w-full border border-zinc-300 rounded p-2 text-sm bg-white">
+                </div>
+                <div class="md:col-span-1">
+                    <label class="block text-xs uppercase mb-1 text-zinc-500">WhatsApp</label>
+                    <input type="text" x-model="novoMensalista.whatsapp" placeholder="(00) 00000" required class="w-full border border-zinc-300 rounded p-2 text-sm bg-white">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-xs uppercase mb-1 text-zinc-500">Plano / Valor</label>
+                    <select x-model="novoMensalista.tipo" @change="atualizarLimitePlano()" required class="w-full border border-zinc-300 rounded p-2 text-sm bg-white">
+                        <option value="">Selecione o plano...</option>
+                        <option value="Cabelo - R$ 100">Cabelo - R$ 100 (4x/sem)</option>
+                        <option value="Cabelo e Barba - R$ 160">Cabelo e Barba - R$ 160 (4x/sem)</option>
+                        <option value="Personalizado">Outro / Personalizado</option>
+                    </select>
+                </div>
+                <div class="md:col-span-1">
+                    <label class="block text-xs uppercase mb-1 text-zinc-500">Limite Semanal</label>
+                    <input type="number" x-model.number="novoMensalista.limiteSemanal" min="1" max="7" value="4" required class="w-full border border-zinc-300 rounded p-2 text-sm bg-white">
+                </div>
+                <div>
+                    <button type="submit" class="w-full bg-zinc-900 text-white p-2 rounded text-sm font-medium h-[38px]">Adicionar</button>
+                </div>
+            </form>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-zinc-600">
+                    <thead class="bg-zinc-50 text-xs uppercase text-zinc-500 border-b">
+                        <tr>
+                            <th class="p-3">Nome / WhatsApp</th>
+                            <th class="p-3">Plano</th>
+                            <th class="p-3 text-center">Limite Semanal</th>
+                            <th class="p-3 text-center">Utilizados esta Semana</th>
+                            <th class="p-3 text-right">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="(m) in mensalistas" :key="m.docId">
+                            <tr class="border-b hover:bg-zinc-50">
+                                <td class="p-3 font-medium text-zinc-900">
+                                    <span x-text="m.nome"></span><br>
+                                    <span class="text-xs text-zinc-400" x-text="m.whatsapp"></span>
+                                </td>
+                                <td class="p-3" x-text="m.tipo"></td>
+                                <td class="p-3 text-center font-bold" x-text="m.limiteSemanal + 'x'"></td>
+                                <td class="p-3 text-center">
+                                    <span class="px-2.5 py-1 rounded text-xs font-bold" 
+                                          :class="contarVisitasMensalistaNaSemana(m.nome) > m.limiteSemanal ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'"
+                                          x-text="contarVisitasMensalistaNaSemana(m.nome) + ' / ' + m.limiteSemanal"></span>
+                                </td>
+                                <td class="p-3 text-right">
+                                    <button @click="removerMensalista(m.docId)" class="text-red-500 hover:text-red-700 text-xs font-medium">Excluir</button>
+                                </td>
+                            </tr>
+                        </template>
+                        <template x-if="mensalistas.length === 0">
+                            <tr><td colspan="5" class="p-4 text-center text-zinc-400">Nenhum mensalista cadastrado.</td></tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ABA 5: CONFIGURAÇÕES -->
+        <section x-show="aba === 'configuracoes'" class="space-y-6" style="display: none;">
+            
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-zinc-200">
+                <h2 class="text-lg font-medium text-zinc-900 mb-4 border-b pb-2">Adicionar Novo Serviço</h2>
+                <form @submit.prevent="adicionarServico" class="flex gap-4 items-end">
+                    <div class="flex-1">
+                        <label class="block text-xs uppercase mb-1 text-zinc-500">Nome do Serviço</label>
+                        <input type="text" x-model="novoServico.nome" required class="w-full border border-zinc-300 rounded p-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs uppercase mb-1 text-zinc-500">Preço (R$)</label>
+                        <input type="number" step="0.01" x-model.number="novoServico.preco" required class="w-32 border border-zinc-300 rounded p-2 text-sm">
+                    </div>
+                    <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-medium">Salvar</button>
+                </form>
+                
+                <div class="mt-4 flex flex-wrap gap-2">
+                    <template x-for="(servico) in listaServicos" :key="servico.docId">
+                        <span class="bg-zinc-100 border border-zinc-200 px-3 py-1 rounded text-xs flex items-center gap-2">
+                            <span x-text="servico.nome + ' (R$ ' + servico.preco.toFixed(2) + ')'"></span>
+                            <button type="button" @click="removerServico(servico.docId)" class="text-red-500 font-bold hover:text-red-700">X</button>
+                        </span>
+                    </template>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-lg shadow-sm border border-zinc-200">
+                <h2 class="text-lg font-medium text-zinc-900 mb-4 border-b pb-2">Adicionar Novo Produto / Extra</h2>
+                <form @submit.prevent="adicionarProduto" class="flex gap-4 items-end">
+                    <div class="flex-1">
+                        <label class="block text-xs uppercase mb-1 text-zinc-500">Nome do Produto</label>
+                        <input type="text" x-model="novoProduto.nome" required class="w-full border border-zinc-300 rounded p-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs uppercase mb-1 text-zinc-500">Preço (R$)</label>
+                        <input type="number" step="0.01" x-model.number="novoProduto.preco" required class="w-32 border border-zinc-300 rounded p-2 text-sm">
+                    </div>
+                    <button type="submit" class="bg-emerald-600 text-white px-4 py-2 rounded text-sm font-medium">Salvar</button>
+                </form>
+
+                <div class="mt-4 flex flex-wrap gap-2">
+                    <template x-for="(produto) in produtosDisponiveis" :key="produto.docId">
+                        <span class="bg-zinc-100 border border-zinc-200 px-3 py-1 rounded text-xs flex items-center gap-2">
+                            <span x-text="produto.nome + ' (R$ ' + parseFloat(produto.preco).toFixed(2) + ')'"></span>
+                            <button type="button" @click="removerProduto(produto.docId)" class="text-red-500 font-bold hover:text-red-700">X</button>
+                        </span>
+                    </template>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, addDoc, getDocs, deleteDoc, updateDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDE2rJWMYdFawA6D9AzZUEy_XPIMVfmdMo",
+            authDomain: "barbearia-eliseu---2.firebaseapp.com",
+            projectId: "barbearia-eliseu---2",
+            storageBucket: "barbearia-eliseu---2.firebasestorage.app",
+            messagingSenderId: "667974163346",
+            appId: "1:667974163346:web:d76c3a00ac96248922bf4b"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        window.db = db;
+        window.col = collection;
+        window.addDoc = addDoc;
+        window.getDocs = getDocs;
+        window.deleteDoc = deleteDoc;
+        window.updateDoc = updateDoc;
+        window.doc = doc;
+        window.onSnapshot = onSnapshot;
+
+        window.dispatchEvent(new CustomEvent('firebase-pronto'));
+    </script>
+
+    <script>
+        function barbeariaApp() {
+            return {
+                aba: 'atendimento',
+                statusCliente: 'Novo',
+                
+                listaServicos: [],
+                produtosDisponiveis: [],
+                historico: [],
+                mensalistas: [],
+                agendamentos: [],
+                listaFechamentos: [],
+                
+                form: {
+                    dataHora: '', telefone: '', nome: '', servicoId: 0,
+                    produtosSelecionados: [], desconto: 0, pagamento: 'Pix', total: 0
+                },
+
+                // Modal Concluir Agendamento
+                modalConcluirAberto: false,
+                agendamentoParaConcluir: {},
+                conclusaoForm: {
+                    servicoId: 0,
+                    produtosSelecionados: [],
+                    pagamento: 'Pix',
+                    desconto: 0
+                },
+                
+                // Modal de Fechamento de Período
+                modalFechamentoAberto: false,
+                dadosFechamento: {
+                    nomePeriodo: '',
+                    totalRecebido: 0,
+                    qtdCortes: 0,
+                    produtosVendidos: 0,
+                    nomes: []
+                },
+
+                novoMensalista: { nome: '', whatsapp: '', tipo: '', limiteSemanal: 4 },
+                novoServico: { nome: '', preco: 0 },
+                novoProduto: { nome: '', preco: 0 },
+                novoAgendamento: { clienteSelecionado: '', cliente: '', whats: '', data: '', hora: '', freq: 1 },
+
+                modalAlertaAberto: false,
+                clienteAlerta: { nome: '', hora: '', whats: '' },
+                alertasNotificados: [],
+
+                init() {
+                    this.atualizarDataHora();
+                    setInterval(() => this.atualizarDataHora(), 1000);
+                    
+                    this.$watch('form.servicoId', () => this.atualizarTotal());
+                    this.$watch('form.produtosSelecionados', () => this.atualizarTotal());
+                    this.$watch('form.desconto', () => this.atualizarTotal());
+
+                    window.addEventListener('firebase-pronto', () => {
+                        this.carregarDadosTempoReal();
+                    });
+
+                    setInterval(() => {
+                        this.checarAlertaAgendamentos();
+                    }, 10000);
+                },
+
+                carregarDadosTempoReal() {
+                    window.onSnapshot(window.col(window.db, 'historico'), (snapshot) => {
+                        this.historico = snapshot.docs.map(d => ({ docId: d.id, ...d.data() }));
+                        this.historico.sort((a, b) => b.id - a.id);
+                    });
+
+                    window.onSnapshot(window.col(window.db, 'fechamentos'), (snapshot) => {
+                        this.listaFechamentos = snapshot.docs.map(d => ({ docId: d.id, ...d.data() }));
+                        this.listaFechamentos.sort((a, b) => new Date(b.dataFechamento) - new Date(a.dataFechamento));
+                    });
+
+                    window.onSnapshot(window.col(window.db, 'mensalistas'), (snapshot) => {
+                        this.mensalistas = snapshot.docs.map(d => ({ docId: d.id, ...d.data() }));
+                    });
+
+                    window.onSnapshot(window.col(window.db, 'agendamentos'), (snapshot) => {
+                        this.agendamentos = snapshot.docs.map(d => ({ docId: d.id, ...d.data() }));
+                        this.checarAlertaAgendamentos();
+                        this.limparAgendamentosVencidos();
+                    });
+
+                    window.onSnapshot(window.col(window.db, 'servicos'), (snapshot) => {
+                        const servicosTemp = snapshot.docs.map(d => ({ docId: d.id, ...d.data() }));
+                        if (servicosTemp.length === 0) {
+                            this.adicionarServicoPadrao('Corte Degradê', 40.00);
+                            this.adicionarServicoPadrao('Barba', 25.00);
+                            this.adicionarServicoPadrao('Corte + Barba', 60.00);
+                        } else {
+                            this.listaServicos = servicosTemp;
+                        }
+                    });
+
+                    window.onSnapshot(window.col(window.db, 'produtos'), (snapshot) => {
+                        const produtosTemp = snapshot.docs.map(d => ({ docId: d.id, ...d.data() }));
+                        if (produtosTemp.length === 0) {
+                            this.adicionarProdutoPadrao('Pomada', 25.00);
+                            this.adicionarProdutoPadrao('Gel', 25.00);
+                            this.adicionarProdutoPadrao('Minoxidil', 60.00);
+                        } else {
+                            this.produtosDisponiveis = produtosTemp;
+                        }
+                    });
+                },
+
+                // FUNÇÃO QUE LIMPA OS DIAS PASSADOS DA AGENDA E MANDA PRO HISTÓRICO
+                async limparAgendamentosVencidos() {
+                    const hoje = new Date();
+                    hoje.setHours(0, 0, 0, 0); // Zera as horas para comparar apenas os dias
+
+                    for (let a of this.agendamentos) {
+                        if (!a.data) continue;
+                        const [ano, mes, dia] = a.data.split('-');
+                        const dataAg = new Date(ano, mes - 1, dia);
+
+                        if (dataAg < hoje) {
+                            // Enviar para o histórico informando que foi encerrado automaticamente (não compareceu/não finalizado no sistema)
+                            await window.addDoc(window.col(window.db, 'historico'), {
+                                id: Date.now(),
+                                dataHora: a.data.split('-').reverse().join('/') + ' ' + a.hora + ' (Passado)',
+                                nome: a.cliente,
+                                telefone: a.whats || 'Não informado',
+                                servicoNome: 'Dia Encerrado',
+                                produtosNomes: 'Nenhum',
+                                pagamento: '-',
+                                visitas: a.freq || 1,
+                                total: 0
+                            });
+                            // Apagar da agenda ativa
+                            await window.deleteDoc(window.doc(window.db, 'agendamentos', a.docId));
+                        }
+                    }
+                },
+
+                // FUNÇÕES DO FECHAMENTO DE PERÍODO
+                abrirModalFechamento() {
+                    let totalDinheiro = 0;
+                    let qtdCortes = 0;
+                    let produtosVendidos = 0;
+                    let clientesSet = new Set();
+                    
+                    this.historico.forEach(h => {
+                        totalDinheiro += h.total;
+                        if (h.servicoNome !== 'Dia Encerrado') qtdCortes += 1;
+                        if (h.produtosNomes && h.produtosNomes !== 'Nenhum') produtosVendidos += 1;
+                        if (h.servicoNome !== 'Dia Encerrado') {
+                            clientesSet.add(h.nome + ' (' + (h.telefone || 'Sem número') + ') - ' + (h.pagamento || ''));
+                        }
+                    });
+                    
+                    this.dadosFechamento = {
+                        nomePeriodo: '',
+                        totalRecebido: totalDinheiro,
+                        qtdCortes: qtdCortes,
+                        produtosVendidos: produtosVendidos,
+                        nomes: Array.from(clientesSet)
+                    };
+                    
+                    this.modalFechamentoAberto = true;
+                },
+
+                async confirmarFechamento() {
+                    if (!this.dadosFechamento.nomePeriodo) {
+                        alert("Por favor, dê um nome para este período (Ex: 'Mês de Maio' ou 'Semana 1').");
+                        return;
+                    }
+
+                    // Salva a consolidação na nova coleção fechamentos
+                    await window.addDoc(window.col(window.db, 'fechamentos'), {
+                        nomePeriodo: this.dadosFechamento.nomePeriodo,
+                        dataFechamento: new Date().toISOString(),
+                        totalRecebido: this.dadosFechamento.totalRecebido,
+                        qtdCortes: this.dadosFechamento.qtdCortes,
+                        produtosVendidos: this.dadosFechamento.produtosVendidos,
+                        nomes: this.dadosFechamento.nomes
+                    });
+
+                    // Limpa todo o histórico atual um por um
+                    for (let h of this.historico) {
+                        await window.deleteDoc(window.doc(window.db, 'historico', h.docId));
+                    }
+
+                    this.modalFechamentoAberto = false;
+                    alert('Período encerrado, arquivado em "Fechamentos" e histórico limpo com sucesso!');
+                    this.aba = 'fechamentos';
+                },
+
+                async removerFechamento(docId) {
+                    if (confirm('Atenção: Tem certeza que deseja apagar este relatório de fechamento?')) {
+                        await window.deleteDoc(window.doc(window.db, 'fechamentos', docId));
+                    }
+                },
+
+                async adicionarServicoPadrao(nome, preco) {
+                    await window.addDoc(window.col(window.db, 'servicos'), { id: Date.now(), nome, preco });
+                },
+
+                async adicionarProdutoPadrao(nome, preco) {
+                    await window.addDoc(window.col(window.db, 'produtos'), { nome, preco });
+                },
+
+                atualizarDataHora() {
+                    const agora = new Date();
+                    this.form.dataHora = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
+                },
+
+                buscarCliente() {
+                    const telLimpo = this.form.telefone.replace(/\D/g, '');
+                    if (telLimpo.length < 8) { this.statusCliente = 'Novo'; return; }
+                    
+                    const encontrado = this.historico.find(h => h.telefone && h.telefone.replace(/\D/g, '') === telLimpo);
+                    if (encontrado) {
+                        this.form.nome = encontrado.nome;
+                        this.statusCliente = 'Cadastrado';
+                    } else {
+                        this.statusCliente = 'Novo';
+                    }
+                },
+
+                atualizarTotal() {
+                    let servicoObj = this.listaServicos.find(s => s.id === this.form.servicoId);
+                    let servicoVal = servicoObj ? parseFloat(servicoObj.preco) : 0;
+                    
+                    let produtosVal = this.form.produtosSelecionados.reduce((acc, nomeProduto) => {
+                        let prod = this.produtosDisponiveis.find(p => p.nome === nomeProduto);
+                        return acc + (prod ? parseFloat(prod.preco) : 0);
+                    }, 0);
+
+                    let descontoVal = parseFloat(this.form.desconto) || 0;
+                    let totalCalc = (servicoVal + produtosVal) - descontoVal;
+                    
+                    this.form.total = totalCalc > 0 ? totalCalc : 0;
+                },
+
+                async salvarAtendimento() {
+                    if (!this.form.nome || this.form.servicoId === 0) {
+                        alert('Preencha o nome e selecione um serviço principal!');
+                        return;
+                    }
+
+                    let servicoObj = this.listaServicos.find(s => s.id === this.form.servicoId);
+                    const telLimpo = this.form.telefone.replace(/\D/g, '');
+                    const visitas = this.historico.filter(h => h.telefone && h.telefone.replace(/\D/g, '') === telLimpo).length + 1;
+
+                    const novoRegistro = {
+                        id: Date.now(),
+                        dataHora: this.form.dataHora,
+                        nome: this.form.nome,
+                        telefone: this.form.telefone,
+                        servicoNome: servicoObj.nome,
+                        produtosNomes: this.form.produtosSelecionados.length > 0 ? this.form.produtosSelecionados.join(', ') : 'Nenhum',
+                        pagamento: this.form.pagamento,
+                        visitas: visitas,
+                        total: this.form.total
+                    };
+
+                    await window.addDoc(window.col(window.db, 'historico'), novoRegistro);
+
+                    this.form.telefone = ''; this.form.nome = ''; this.form.servicoId = 0;
+                    this.form.produtosSelecionados = []; this.form.desconto = 0;
+                    this.form.pagamento = 'Pix'; 
+                    this.statusCliente = 'Novo';
+                    
+                    alert('Atendimento salvo e sincronizado na nuvem!');
+                },
+
+                async removerHistorico(docId) {
+                    if (confirm('Deseja realmente excluir este atendimento?')) {
+                        await window.deleteDoc(window.doc(window.db, 'historico', docId));
+                    }
+                },
+
+                // ---- AGENDAMENTOS E QUADRADOS DE CALENDÁRIO ----
+                preencherDadosMensalista() {
+                    if (!this.novoAgendamento.clienteSelecionado) return;
+                    let m = this.mensalistas.find(x => x.nome === this.novoAgendamento.clienteSelecionado);
+                    if (m) {
+                        this.novoAgendamento.cliente = m.nome;
+                        this.novoAgendamento.whats = m.whatsapp;
+                    }
+                },
+
+                async salvarAgendamento() {
+                    if(!this.novoAgendamento.cliente || !this.novoAgendamento.data || !this.novoAgendamento.hora) {
+                        alert('Preencha o nome, data e horário!');
+                        return;
+                    }
+
+                    const horarioDuplicado = this.agendamentos.find(a => a.data === this.novoAgendamento.data && a.hora === this.novoAgendamento.hora);
+                    if (horarioDuplicado) {
+                        alert('⚠️ Atenção: O horário de ' + this.novoAgendamento.hora + ' do dia ' + this.novoAgendamento.data.split('-').reverse().join('/') + ' já foi agendado para o cliente ' + horarioDuplicado.cliente + '!');
+                        return;
+                    }
+
+                    await window.addDoc(window.col(window.db, 'agendamentos'), { 
+                        cliente: this.novoAgendamento.cliente,
+                        whats: this.novoAgendamento.whats,
+                        data: this.novoAgendamento.data,
+                        hora: this.novoAgendamento.hora,
+                        freq: this.novoAgendamento.freq 
+                    });
+
+                    this.novoAgendamento = { clienteSelecionado: '', cliente: '', whats: '', data: '', hora: '', freq: 1 };
+                    alert('Agendamento salvo com sucesso!');
+                },
+
+                abrirModalConcluir(agendamento) {
+                    this.agendamentoParaConcluir = agendamento;
+                    this.conclusaoForm = {
+                        servicoId: 0,
+                        produtosSelecionados: [],
+                        pagamento: 'Pix',
+                        desconto: 0
+                    };
+                    this.modalConcluirAberto = true;
+                },
+
+                calcularTotalConclusao() {
+                    let servicoObj = this.listaServicos.find(s => s.id === this.conclusaoForm.servicoId);
+                    let servicoVal = servicoObj ? parseFloat(servicoObj.preco) : 0;
+
+                    let produtosVal = this.conclusaoForm.produtosSelecionados.reduce((acc, nomeProduto) => {
+                        let prod = this.produtosDisponiveis.find(p => p.nome === nomeProduto);
+                        return acc + (prod ? parseFloat(prod.preco) : 0);
+                    }, 0);
+
+                    let descontoVal = parseFloat(this.conclusaoForm.desconto) || 0;
+                    let totalCalc = (servicoVal + produtosVal) - descontoVal;
+                    return totalCalc > 0 ? totalCalc : 0;
+                },
+
+                async confirmarConclusaoAgendamento() {
+                    if (this.conclusaoForm.servicoId === 0) {
+                        alert('Selecione o serviço/corte realizado!');
+                        return;
+                    }
+
+                    let servicoObj = this.listaServicos.find(s => s.id === this.conclusaoForm.servicoId);
+                    const agora = new Date();
+                    const dataHoraFormatada = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'});
+
+                    const novoRegistro = {
+                        id: Date.now(),
+                        dataHora: dataHoraFormatada,
+                        nome: this.agendamentoParaConcluir.cliente,
+                        telefone: this.agendamentoParaConcluir.whats || 'Não informado',
+                        servicoNome: servicoObj.nome,
+                        produtosNomes: this.conclusaoForm.produtosSelecionados.length > 0 ? this.conclusaoForm.produtosSelecionados.join(', ') : 'Nenhum',
+                        pagamento: this.conclusaoForm.pagamento,
+                        visitas: this.agendamentoParaConcluir.freq || 1,
+                        total: this.calcularTotalConclusao()
+                    };
+
+                    await window.addDoc(window.col(window.db, 'historico'), novoRegistro);
+                    await window.deleteDoc(window.doc(window.db, 'agendamentos', this.agendamentoParaConcluir.docId));
+
+                    this.modalConcluirAberto = false;
+                    alert('Atendimento concluído e transferido para o histórico com sucesso!');
+                },
+
+                obterProximosDias() {
+                    const dias = [];
+                    const diasSemanaNomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+                    
+                    for (let i = 0; i < 30; i++) {
+                        const d = new Date();
+                        d.setDate(d.getDate() + i);
+                        
+                        const ano = d.getFullYear();
+                        const mes = String(d.getMonth() + 1).padStart(2, '0');
+                        const dia = String(d.getDate()).padStart(2, '0');
+                        const dataStr = `${ano}-${mes}-${dia}`;
+
+                        const agendamentosDoDia = this.agendamentos
+                            .filter(a => a.data === dataStr)
+                            .sort((a, b) => a.hora.localeCompare(b.hora));
+
+                        let tooltipText = `Data: ${dia}/${mes}/${ano}\n`;
+                        if (agendamentosDoDia.length === 0) {
+                            tooltipText += "Nenhum horário agendado.";
+                        } else {
+                            tooltipText += "Horários agendados:\n" + agendamentosDoDia.map(a => `• ${a.hora} - ${a.cliente}`).join('\n');
+                        }
+
+                        dias.push({
+                            dataStr: dataStr,
+                            diaSemana: i === 0 ? 'Hoje' : diasSemanaNomes[d.getDay()],
+                            diaMes: `${dia}/${mes}`,
+                            total: agendamentosDoDia.length,
+                            tooltipHorarios: tooltipText
+                        });
+                    }
+                    return dias;
+                },
+
+                obterClasseCorDia(total) {
+                    if (total >= 1 && total <= 3) {
+                        return 'bg-emerald-50 border-emerald-300 text-emerald-900';
+                    } else if (total >= 4 && total <= 5) {
+                        return 'bg-amber-50 border-amber-300 text-amber-900';
+                    } else if (total >= 6) {
+                        return 'bg-red-50 border-red-300 text-red-900';
+                    } else {
+                        return 'bg-zinc-50 border-zinc-200 text-zinc-500';
+                    }
+                },
+
+                checarAlertaAgendamentos() {
+                    const agora = new Date();
+                    this.agendamentos.forEach(a => {
+                        if (!a.data || !a.hora) return;
+                        const [ano, mes, dia] = a.data.split('-');
+                        const [hora, min] = a.hora.split(':');
+                        const dataAgendada = new Date(ano, mes - 1, dia, hora, min);
+
+                        const difMinutos = (dataAgendada - agora) / (1000 * 60);
+
+                        if (difMinutos > 0 && difMinutos <= 15 && !this.alertasNotificados.includes(a.docId)) {
+                            this.clienteAlerta = { nome: a.cliente, hora: a.hora, whats: a.whats };
+                            this.modalAlertaAberto = true;
+                            this.alertasNotificados.push(a.docId);
+                        }
+                    });
+                },
+
+                fecharAlerta() {
+                    this.modalAlertaAberto = false;
+                },
+
+                // ---- MENSALISTAS ----
+                atualizarLimitePlano() {
+                    if (this.novoMensalista.tipo.includes('100')) {
+                        this.novoMensalista.limiteSemanal = 4;
+                    } else if (this.novoMensalista.tipo.includes('160')) {
+                        this.novoMensalista.limiteSemanal = 4;
+                    }
+                },
+
+                contarVisitasMensalistaNaSemana(nomeMensalista) {
+                    const hoje = new Date();
+                    const inicioSemana = new Date(hoje);
+                    inicioSemana.setDate(hoje.getDate() - hoje.getDay());
+                    inicioSemana.setHours(0,0,0,0);
+
+                    let count = this.agendamentos.filter(a => {
+                        if (a.cliente.toLowerCase() !== nomeMensalista.toLowerCase()) return false;
+                        if (!a.data) return false;
+                        const [ano, mes, dia] = a.data.split('-');
+                        const dataAg = new Date(ano, mes - 1, dia);
+                        return dataAg >= inicioSemana;
+                    }).length;
+
+                    return count;
+                },
+
+                async salvarMensalista() {
+                    if(!this.novoMensalista.nome || !this.novoMensalista.tipo) return;
+                    await window.addDoc(window.col(window.db, 'mensalistas'), {
+                        nome: this.novoMensalista.nome,
+                        whatsapp: this.novoMensalista.whatsapp || 'Não informado',
+                        tipo: this.novoMensalista.tipo,
+                        limiteSemanal: parseInt(this.novoMensalista.limiteSemanal) || 4
+                    });
+                    this.novoMensalista = { nome: '', whatsapp: '', tipo: '', limiteSemanal: 4 };
+                },
+
+                async removerMensalista(docId) {
+                    if (confirm('Excluir este mensalista?')) {
+                        await window.deleteDoc(window.doc(window.db, 'mensalistas', docId));
+                    }
+                },
+
+                // ---- CONFIGURAÇÕES ----
+                async adicionarServico() {
+                    if(!this.novoServico.nome || this.novoServico.preco <= 0) return;
+                    await window.addDoc(window.col(window.db, 'servicos'), {
+                        id: Date.now(),
+                        nome: this.novoServico.nome,
+                        preco: parseFloat(this.novoServico.preco)
+                    });
+                    this.novoServico = { nome: '', preco: 0 };
+                },
+                async removerServico(docId) {
+                    await window.deleteDoc(window.doc(window.db, 'servicos', docId));
+                },
+                async adicionarProduto() {
+                    if(!this.novoProduto.nome || this.novoProduto.preco <= 0) return;
+                    await window.addDoc(window.col(window.db, 'produtos'), {
+                        nome: this.novoProduto.nome,
+                        preco: parseFloat(this.novoProduto.preco)
+                    });
+                    this.novoProduto = { nome: '', preco: 0 };
+                },
+                async removerProduto(docId) {
+                    await window.deleteDoc(window.doc(window.db, 'produtos', docId));
+                }
+            }
+        }
+    </script>
+</body>
+</html>
